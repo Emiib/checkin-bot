@@ -51,7 +51,16 @@ router.post('/', async (req, res) => {
 
     if (!messages || messages.length === 0) return;
 
-    const message = messages[0];
+	const message = messages[0];
+	// Ignorar mensajes que no son del usuario (estados, notificaciones del sistema)
+	if (message.from === process.env.WHATSAPP_PHONE_ID) return;
+	if (!message.type) return;
+
+	// Ignorar si no tiene contenido real
+	const tiposValidos = ['text', 'image', 'document', 'audio'];
+	if (!tiposValidos.includes(message.type)) return;
+
+	const message = messages[0];
 	let from = message.from;
 	if (from.startsWith('549') && from.length === 13) {
 	  from = '54' + from.slice(3); // 5493512395563 → 543512395563
