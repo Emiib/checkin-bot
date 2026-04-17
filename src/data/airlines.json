@@ -6,70 +6,88 @@
       "tipo": "aereo",
       "horas_antes_checkin": 24,
       "horas_cierre_checkin": 1,
-      "url_checkin": "https://www.iberia.com/es/check-in-online/",
+      "url_checkin": "https://www.iberia.com/ar/",
       "notas": "Check-in abre 24h antes y cierra 1h antes del vuelo"
     },
-    {
-      "id": "vueling",
-      "names": ["Vueling", "VY", "VLG"],
+	{
+      "id": "aircanada",
+      "names": ["Air Canada", "AC", "Canada"],
       "tipo": "aereo",
-      "horas_antes_checkin": 48,
-      "horas_cierre_checkin": 4,
-      "url_checkin": "https://www.vueling.com/es/servicios-vueling/prepara-tu-vuelo/check-in-online",
-      "notas": "Check-in abre 48h antes y cierra 4h antes del vuelo"
+      "horas_antes_checkin": 24,
+      "horas_cierre_checkin": 1,
+      "url_checkin": "https://www.aircanada.com/home/ca/en/aco/checkin",
+      "notas": "Check-in abre 24h antes y cierra 1h antes del vuelo"
     },
-{
-  "id": "aerolineas_argentinas",
-  "names": ["Aerolineas Argentinas", "Aerolíneas Argentinas", "AR", "ARG"],
-  "tipo": "aereo",
-  "horas_antes_checkin": 48,
-  "horas_cierre_checkin": 1,
-  "url_checkin": "https://www.aerolineas.com.ar/es-ar/check-in",
-  "notas": "Check-in abre 48h antes y cierra 1h antes del vuelo"
-},
-    {
-      "id": "ryanair",
-      "names": ["Ryanair", "FR", "RYR"],
-      "tipo": "aereo",
-      "horas_antes_checkin": 48,
-      "horas_cierre_checkin": 2,
-      "url_checkin": "https://www.ryanair.com/es/es/check-in",
-      "notas": "Check-in abre 48h antes. Obligatorio hacer check-in online"
-    },
-    {
-      "id": "easyjet",
-      "names": ["easyJet", "EasyJet", "U2", "EZY"],
+	{
+      "id": "airfrance",
+      "names": ["Air France", "AF", "France"],
       "tipo": "aereo",
       "horas_antes_checkin": 30,
-      "horas_cierre_checkin": 2,
-      "url_checkin": "https://www.easyjet.com/es/check-in",
-      "notas": "Check-in abre 30h antes del vuelo"
+      "horas_cierre_checkin": 1,
+      "url_checkin": "https://wwws.airfrance.com.ar/check-in",
+      "notas": "Check-in abre 30h antes y cierra 1h antes del vuelo"
     },
     {
-      "id": "wizzair",
-      "names": ["Wizz Air", "WizzAir", "W6", "WZZ"],
+      "id": "aeromexico",
+      "names": ["Aero Mexico", "AM", "AMX"],
       "tipo": "aereo",
-      "horas_antes_checkin": 48,
-      "horas_cierre_checkin": 3,
-      "url_checkin": "https://wizzair.com/es-es/check-in",
-      "notas": "Check-in abre 48h antes y cierra 3h antes del vuelo"
+      "horas_antes_checkin": 24,
+      "horas_cierre_checkin": 1,
+      "url_checkin": "https://www.aeromexico.com/es-mx/check-in",
+      "notas": "Check-in abre 24h antes y cierra 1h antes del vuelo"
     },
+	{
+  "id": "aerolineas_argentinas",
+  "names": ["Aerolineas Argentinas", "AR", "ARG"],
+  "tipo": "aereo",
+  "horas_antes_checkin": 24,
+  "horas_cierre_checkin": 1,
+  "url_checkin": "https://www.aerolineas.com.ar/es-ar/check-in",
+  "notas": "Check-in abre 24h antes y cierra 1h antes del vuelo"
+	},
     {
-      "id": "norwegian",
-      "names": ["Norwegian", "DY", "NAX"],
-      "tipo": "aereo",
-      "horas_antes_checkin": 72,
-      "horas_cierre_checkin": 1.5,
-      "url_checkin": "https://www.norwegian.com/es/check-in/",
-      "notas": "Check-in abre 72h antes del vuelo"
-    },
-    {
-      "id": "aireuropa",
-      "names": ["Air Europa", "AirEuropa", "UX", "AEA"],
+      "id": "avianca",
+      "names": ["Avianca", "AV", "AVC"],
       "tipo": "aereo",
       "horas_antes_checkin": 48,
       "horas_cierre_checkin": 1,
-      "url_checkin": "https://www.aireuropa.com/es/es/aea/informacion-vuelos/check-in.html",
+      "url_checkin": "https://www.avianca.com/es/tu-reserva/check-in-online",
+      "notas": "Check-in abre 48h antes y cierra 1h antes del vuelo"
+    },
+    {
+      "id": "ita_airways",
+      "names": ["ITA AIRWAYS", "AZ", "ITA"],
+      "tipo": "aereo",
+      "horas_antes_checkin": 30,
+      "horas_cierre_checkin": 1,
+      "url_checkin": "https://fly.ita-airways.com/ssci/identification?lang=es",
+      "notas": "Check-in abre 30h antes del vuelo"
+    },
+    {
+      "id": "british_airways",
+      "names": ["BRITISH AIRWAYS", "BA", "BRITISH"],
+      "tipo": "aereo",
+      "horas_antes_checkin": 24,
+      "horas_cierre_checkin": 1,
+      "url_checkin": "https://www.britishairways.com/travel/olcilandingpageauthreq/public/en_gb/",
+      "notas": "Check-in abre 24h antes y cierra 1h antes del vuelo"
+    },
+    {
+      "id": "copa_airlines",
+      "names": ["COPA AIRLINES", "CM", "COPA"],
+      "tipo": "aereo",
+      "horas_antes_checkin": 24,
+      "horas_cierre_checkin": 1,
+      "url_checkin": "https://checkin.copaair.com",
+      "notas": "Check-in abre 24h antes del vuelo"
+    },
+    {
+      "id": "delta_airlines",
+      "names": ["DELTA AIRLINES", "DL", "DELTA"],
+      "tipo": "aereo",
+      "horas_antes_checkin": 24,
+      "horas_cierre_checkin": 1,
+      "url_checkin": "https://es.delta.com/lac/es",
       "notas": "Check-in abre 48h antes del vuelo"
     },
     {
@@ -77,36 +95,36 @@
       "names": ["American Airlines", "AA", "AAL"],
       "tipo": "aereo",
       "horas_antes_checkin": 24,
-      "horas_cierre_checkin": 1,
-      "url_checkin": "https://www.aa.com/checkin",
+      "horas_cierre_checkin": 2,
+      "url_checkin": "https://www.aa.com/",
       "notas": "Check-in abre 24h antes del vuelo"
     },
     {
-      "id": "delta",
-      "names": ["Delta", "Delta Air Lines", "DL", "DAL"],
+      "id": "arajet",
+      "names": ["ARAJET", "DM"],
       "tipo": "aereo",
-      "horas_antes_checkin": 24,
-      "horas_cierre_checkin": 1,
-      "url_checkin": "https://www.delta.com/us/en/check-in/overview",
-      "notas": "Check-in abre 24h antes del vuelo"
+      "horas_antes_checkin": 48,
+      "horas_cierre_checkin": 3,
+      "url_checkin": "https://www.arajet.com/es-ar/checkin",
+      "notas": "Check-in abre 48h antes del vuelo"
     },
     {
-      "id": "united",
+      "id": "united_airlines",
       "names": ["United", "United Airlines", "UA", "UAL"],
       "tipo": "aereo",
       "horas_antes_checkin": 24,
-      "horas_cierre_checkin": 1,
-      "url_checkin": "https://www.united.com/ual/en/us/flight-search/book-a-flight/checkin",
+      "horas_cierre_checkin": 1.5,
+      "url_checkin": "https://www.united.com/en/us/checkin",
       "notas": "Check-in abre 24h antes del vuelo"
     },
     {
-      "id": "transavia",
-      "names": ["Transavia", "HV", "TRA"],
+      "id": "emirates",
+      "names": ["EMIRATES", "EK"],
       "tipo": "aereo",
-      "horas_antes_checkin": 30,
-      "horas_cierre_checkin": 1,
-      "url_checkin": "https://www.transavia.com/es-ES/check-in/",
-      "notas": "Check-in abre 30h antes del vuelo"
+      "horas_antes_checkin": 48,
+      "horas_cierre_checkin": 1.5,
+      "url_checkin": "https://www.emirates.com/ar/spanish/manage-booking/online-check-in/",
+      "notas": "Check-in abre 48h antes del vuelo"
     },
     {
       "id": "klm",
@@ -114,17 +132,17 @@
       "tipo": "aereo",
       "horas_antes_checkin": 30,
       "horas_cierre_checkin": 1,
-      "url_checkin": "https://www.klm.es/es/information/before-you-fly/check-in",
+      "url_checkin": "https://www.klm.com.ar/check-in",
       "notas": "Check-in abre 30h antes del vuelo"
     },
     {
       "id": "lufthansa",
       "names": ["Lufthansa", "LH", "DLH"],
       "tipo": "aereo",
-      "horas_antes_checkin": 23,
-      "horas_cierre_checkin": 1,
+      "horas_antes_checkin": 30,
+      "horas_cierre_checkin": 1.5,
       "url_checkin": "https://www.lufthansa.com/es/es/online-check-in",
-      "notas": "Check-in abre 23h antes del vuelo"
+      "notas": "Check-in abre 30h antes del vuelo"
     },
     {
       "id": "britishairways",
@@ -134,6 +152,204 @@
       "horas_cierre_checkin": 1,
       "url_checkin": "https://www.britishairways.com/travel/olcilandingpageauthreq/public/es_es",
       "notas": "Check-in abre 24h antes del vuelo"
+    },
+	{
+      "id": "sky_arilines",
+      "names": ["SKY AIRLINES", "HE", "SKY"],
+      "tipo": "aereo",
+      "horas_antes_checkin": 48,
+      "horas_cierre_checkin": 1,
+      "url_checkin": "https://check-in.skyairline.com/es/otros/",
+      "notas": "Check-in abre 48h antes del vuelo"
+    },
+	{
+      "id": "latam_airlines",
+      "names": ["LATAM AIRLINES", "LA", "LATAM"],
+      "tipo": "aereo",
+      "horas_antes_checkin": 48,
+      "horas_cierre_checkin": 3,
+      "url_checkin": "https://www.latamairlines.com/us/es/check-in",
+      "notas": "Check-in abre 48h antes del vuelo pero puede que se haga de forma automatica"
+    },
+	{
+      "id": "jetsmart_airlines",
+      "names": ["JETSMART AIRLINES", "JA", "jetsmart"],
+      "tipo": "aereo",
+      "horas_antes_checkin": 72,
+      "horas_cierre_checkin": 1.5,
+      "url_checkin": "https://jetsmart.com/ar/es/minisitios/checkin",
+      "notas": "Check-in abre 72h antes del vuelo. Llevar pase de abordar impreso"
+    },
+	{
+      "id": "swiss",
+      "names": ["SWISS", "LX", "SW"],
+      "tipo": "aereo",
+      "horas_antes_checkin": 24,
+      "horas_cierre_checkin": 1,
+      "url_checkin": "https://www.swiss.com/ch/en/fly/check-in/online-check-in",
+      "notas": "Check-in abre 24h antes del vuelo"
+    },
+	{
+      "id": "qatar_airways",
+      "names": ["QATAR", "QR", "qatar"],
+      "tipo": "aereo",
+      "horas_antes_checkin": 48,
+      "horas_cierre_checkin": 1.5,
+      "url_checkin": "https://cki.qatarairways.com/cki/dashboard",
+      "notas": "Check-in abre 48h antes del vuelo"
+    },
+	{
+      "id": "turkish_airlines",
+      "names": ["TURKISH AIRLINES", "TK", "turkish"],
+      "tipo": "aereo",
+      "horas_antes_checkin": 24,
+      "horas_cierre_checkin": 1.5,
+      "url_checkin": "https://www.turkishairlines.com/en-az/flights/manage-booking/",
+      "notas": "Check-in abre 24h antes del vuelo"
+    },
+	{
+      "id": "airportugal",
+      "names": ["AIR PORTUGAL", "TP", "portugal"],
+      "tipo": "aereo",
+      "horas_antes_checkin": 36,
+      "horas_cierre_checkin": 1,
+      "url_checkin": "htthttps://myb.flytap.com/my-bookings?market=us&language=en",
+      "notas": "Check-in abre 36h antes del vuelo"
+    },
+	{
+      "id": "gol_linhas_aereas",
+      "names": ["GOL LINHAS AEREAS", "G3", "gol"],
+      "tipo": "aereo",
+      "horas_antes_checkin": 48,
+      "horas_cierre_checkin": 1,
+      "url_checkin": "https://b2c.voegol.com.br/check-in/?culture=es-us&_gl=1*luckib*_gcl_au*OTI2NTQ2NTU3LjE3NDk2NTQ3MTk.",
+      "notas": "Check-in abre 48h antes del vuelo"
+    },
+	{
+      "id": "air_europa",
+      "names": ["AIR EUROPA", "UX", "eu", "europa"],
+      "tipo": "aereo",
+      "horas_antes_checkin": 48,
+      "horas_cierre_checkin": 1,
+      "url_checkin": "https://www.aireuropa.com/ar/es/mytrips/checkin",
+      "notas": "Check-in abre 48h antes del vuelo"
+    },
+	{
+      "id": "etihad_airways",
+      "names": ["ETIHAD AIRWAYS", "EY", "etihad"],
+      "tipo": "aereo",
+      "horas_antes_checkin": 48,
+      "horas_cierre_checkin": 1.5,
+      "url_checkin": "https://www.etihad.com/en/manage/check-in",
+      "notas": "Check-in abre 48h antes del vuelo"
+    },
+	{
+      "id": "qantas_airways",
+      "names": ["QANTAS AIRWAYS", "QF", "qantas"],
+      "tipo": "aereo",
+      "horas_antes_checkin": 24,
+      "horas_cierre_checkin": 1.5,
+      "url_checkin": "https://www.qantas.com/en-us/manage-booking/check-in",
+      "notas": "Check-in abre 24h antes del vuelo"
+    },
+	{
+      "id": "air_new_zealand",
+      "names": ["AIR NEW ZEALAND", "NZ", "zealand", "new zealand"],
+      "tipo": "aereo",
+      "horas_antes_checkin": 24,
+      "horas_cierre_checkin": 2,
+      "url_checkin": "https://www.airnewzealand.com/",
+      "notas": "Check-in abre 24h antes del vuelo"
+    },
+	{
+      "id": "south_african_airways",
+      "names": ["South African Airways", "SA", "South African", "south", "african air"],
+      "tipo": "aereo",
+      "horas_antes_checkin": 24,
+      "horas_cierre_checkin": 1.5,
+      "url_checkin": "https://www.flysaa.com/manage-fly/manage/check-in",
+      "notas": "Check-in abre 24h antes del vuelo"
+    },
+	{
+      "id": "ethiopian_airlines",
+      "names": ["Ethiopian Airlines", "ET", "Ethiopian", "ETH"],
+      "tipo": "aereo",
+      "horas_antes_checkin": 48,
+      "horas_cierre_checkin": 2,
+      "url_checkin": "https://www.ethiopianairlines.com/ar/book/check-in/web-check-in",
+      "notas": "Check-in abre 24h antes del vuelo"
+    },
+	{
+      "id": "air_china",
+      "names": ["AIR CHINA", "CA", "china", "chi"],
+      "tipo": "aereo",
+      "horas_antes_checkin": 36,
+      "horas_cierre_checkin": 1,
+      "url_checkin": "https://www.airchina.com.cn/en-US/flight/booking/service-handle?type=checkin",
+      "notas": "Check-in abre 36h antes del vuelo"
+    },
+	{
+      "id": "japan_airlines",
+      "names": ["JAPAN AIRLINES", "JL", "japan"],
+      "tipo": "aereo",
+      "horas_antes_checkin": 24,
+      "horas_cierre_checkin": 1,
+      "url_checkin": "https://digital.jal.co.jp/ssci/identification?lang=en-GB",
+      "notas": "Check-in abre 24h antes del vuelo"
+    },
+	{
+      "id": "singapore_airlines",
+      "names": ["SINGAPORE AIRLINES", "SQ", "singapore"],
+      "tipo": "aereo",
+      "horas_antes_checkin": 48,
+      "horas_cierre_checkin": 1.5,
+      "url_checkin": "https://www.singaporeair.com/en_UK/us/home#/checkin",
+      "notas": "Check-in abre 48h antes del vuelo"
+    },
+	{
+      "id": "korean_air",
+      "names": ["KOREAN AIR", "KE", "korean"],
+      "tipo": "aereo",
+      "horas_antes_checkin": 48,
+      "horas_cierre_checkin": 1,
+      "url_checkin": "https://www.singaporeair.com/en_UK/us/home#/checkin",
+      "notas": "Check-in abre 48h antes del vuelo"
+    },
+	{
+      "id": "volotea",
+      "names": ["VOLOTEA", "V7", "vol"],
+      "tipo": "aereo",
+      "horas_antes_checkin": 96,
+      "horas_cierre_checkin": 2.5,
+      "url_checkin": "https://www.volotea.com/es/tu-reserva/check-in-online/",
+      "notas": "Check-in abre 96h antes del vuelo"
+    },
+	{
+      "id": "croatia_airlines",
+      "names": ["CROATIA AIRLINES", "OU", "CTN"],
+      "tipo": "aereo",
+      "horas_antes_checkin": 36,
+      "horas_cierre_checkin": 1,
+      "url_checkin": "https://wci.croatiaairlines.hr/web/ck_retrieve",
+      "notas": "Check-in abre 36h antes del vuelo"
+    },
+	{
+      "id": "aegean_airlines",
+      "names": ["AEGEAN AIRLINES", "A3", "AEE", "aegean"],
+      "tipo": "aereo",
+      "horas_antes_checkin": 48,
+      "horas_cierre_checkin": 1,
+      "url_checkin": "https://en.aegeanair.com/plan/check-in/",
+      "notas": "Check-in abre 48h antes del vuelo"
+    },
+	{
+      "id": "vueling",
+      "names": ["VUELING AIRLINES", "VY", "VLG", "vueling"],
+      "tipo": "aereo",
+      "horas_antes_checkin": 24,
+      "horas_cierre_checkin": 4,
+      "url_checkin": "https://tickets.vueling.com/checkin?c=es-ES&_branch_match_id=1573707515481699027&_branch_referrer=H4sIAAAAAAAAA8soKSkottLXz8nMy9YrK00F0ul6yfm5%2BskZqcnZmXmpxfZ1RalpqUVFQIn4pKL88uLUIlvnjKL83FQAJG87YTwAAAA%3D",
+      "notas": "Segun la tarifa puede abrir al momento de la compra del tkt, sino 24h previas"
     },
     {
       "id": "renfe",
