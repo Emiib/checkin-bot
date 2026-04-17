@@ -60,7 +60,6 @@ router.post('/', async (req, res) => {
 	const tiposValidos = ['text', 'image', 'document', 'audio'];
 	if (!tiposValidos.includes(message.type)) return;
 
-	const message = messages[0];
 	let from = message.from;
 	if (from.startsWith('549') && from.length === 13) {
 	  from = '54' + from.slice(3); // 5493512395563 → 543512395563
