@@ -1,0 +1,24 @@
+checkin-bot/
+├── index.js
+├── .env
+├── .gitignore
+├── package.json
+└── src/
+    ├── db/
+    │   └── supabase.js
+    ├── routes/
+    │   └── webhook.js
+    ├── services/
+    │   ├── analyzer.js
+    │   ├── audioTranscriber.js
+    │   ├── checkinCalculator.js
+    │   ├── confirmationService.js
+    │   ├── cronService.js
+    │   ├── flightService.js
+    │   ├── reminderService.js
+    │   └── whatsapp.js
+    ├── utils/
+    │   ├── normalizePhone.js
+    │   └── messageTemplates.js
+    └── cron/
+        └── checkinCron.js
