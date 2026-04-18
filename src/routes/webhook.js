@@ -83,6 +83,12 @@ router.post('/', async (req, res) => {
         return;
       }
 
+      // ── Comando: BORRAR recordatorio ───────────────────────────────────
+      if (textUpper.startsWith('BORRAR ')) {
+        await handleDeleteReminder(from, textUpper);
+        return;
+      }
+
       if (['HOLA', 'START', 'INICIO', 'HELP', 'AYUDA', 'MENU', 'MENÚ'].includes(textUpper)) {
         await sendText(from, templates.welcome());
         return;
@@ -318,7 +324,7 @@ async function processMultipleFlights(from, user, ticketData) {
  * Procesa un vuelo sin pedir confirmación (para itinerarios múltiples)
  * Retorna el vuelo guardado y el cálculo de check-in
  */
-async function processFlightDataSilent(from, user, ticketData) {
+async function processFlightData(from, user, ticketData) {
   try {
     const checkinCalc = await calculateCheckin({
       originIATA: ticketData.origen,
@@ -330,11 +336,10 @@ async function processFlightDataSilent(from, user, ticketData) {
     });
 
     if (checkinCalc.error) {
-      await sendText(from, `⚠️ ${checkinCalc.message}`);
-      return null;
+      await sendText(from, `⚠️ ${checkinCalc.message}\n\nRevisá los datos e intentá de nuevo.`);
+      return;
     }
 
-    // Verificar duplicado
     const duplicate = await findDuplicateFlight(
       user.id,
       ticketData.flight_number,
@@ -343,12 +348,12 @@ async function processFlightDataSilent(from, user, ticketData) {
 
     if (duplicate) {
       await sendText(from,
-        `ℹ️ Vuelo *${ticketData.flight_number}* ya registrado.`
+        `ℹ️ Ya tengo registrado el vuelo *${ticketData.flight_number}*.\n` +
+        `Escribí *LISTA* para ver tus recordatorios.`
       );
-      return { duplicate: true };
+      return;
     }
 
-    // Guardar vuelo
     const flight = await saveFlight({
       userId: user.id,
       airlineCode: ticketData.compania,
@@ -364,7 +369,6 @@ async function processFlightDataSilent(from, user, ticketData) {
       checkinCalc
     });
 
-    // Guardar ticket
     await saveTicket({
       userId: user.id,
       flightId: flight.id,
@@ -372,16 +376,18 @@ async function processFlightDataSilent(from, user, ticketData) {
       source: ticketData.tipo_fuente || 'text'
     });
 
-    // Enviar info del check-in (sin preguntar SI/NO)
     const checkinMessage = formatCheckinMessage(checkinCalc);
     await sendText(from, checkinMessage);
 
-    return { flight, checkinCalc };
+    // Auto-programar recordatorio siempre
+    if (!checkinCalc.status.yaEstaAbierto && !checkinCalc.status.yaExpiro) {
+      await createReminder(flight.id, user.id, checkinCalc.utc.checkinOpensUTC);
+      await sendText(from, `🔔 Recordatorio programado automáticamente ✅`);
+    }
 
   } catch (err) {
-    console.error('[Webhook] Error en processFlightDataSilent:', err.message);
-    await sendText(from, `⚠️ Error procesando vuelo ${ticketData.flight_number || ''}`);
-    return null;
+    console.error('[Webhook] Error procesando vuelo:', err.message);
+    await sendText(from, templates.errorGeneral());
   }
 }
 
@@ -448,7 +454,7 @@ async function handleListReminders(from) {
       .setZone('America/Argentina/Buenos_Aires')
       .toFormat('dd/MM/yyyy HH:mm');
 
-    msg += `${i + 1}. ✈️ *${flight.flight_number}*\n`;
+    msg += `*${i + 1}.* ✈️ *${flight.flight_number}*\n`;
     msg += `   🛫 ${flight.origin} → ${flight.destination}\n`;
     msg += `   📅 Sale: ${departure}\n`;
     msg += `   🔔 Check-in abre (ARG): ${checkinOpen}\n`;
@@ -463,7 +469,45 @@ async function handleListReminders(from) {
     msg += `\n`;
   });
 
+  msg += `─────────────────\n`;
+  msg += `Para eliminar un recordatorio escribí:\n`;
+  msg += `*BORRAR 1* o *BORRAR 2* (el número del vuelo)`;
+
   await sendText(from, msg);
+}
+
+async function handleDeleteReminder(from, textUpper) {
+  const parts = textUpper.split(' ');
+  const index = parseInt(parts[1]) - 1;
+
+  if (isNaN(index) || index < 0) {
+    await sendText(from, `⚠️ Formato incorrecto. Escribí *BORRAR 1* para eliminar el primer recordatorio.`);
+    return;
+  }
+
+  const reminders = await getUserReminders(from);
+
+  if (reminders.length === 0) {
+    await sendText(from, templates.noReminders());
+    return;
+  }
+
+  if (index >= reminders.length) {
+    await sendText(from, `⚠️ Solo tenés ${reminders.length} recordatorio(s). Escribí *BORRAR 1* a *BORRAR ${reminders.length}*.`);
+    return;
+  }
+
+  const reminder = reminders[index];
+  const flightNumber = reminder.flights?.flight_number || 'desconocido';
+
+  // Importar cancelFlightReminders
+  const { cancelFlightReminders } = require('../services/reminderService');
+  await cancelFlightReminders(reminder.flight_id);
+
+  await sendText(from,
+    `🗑️ Recordatorio del vuelo *${flightNumber}* eliminado.\n\n` +
+    `Escribí *LISTA* para ver los que quedan.`
+  );
 }
 
 module.exports = router;

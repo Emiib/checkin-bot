@@ -15,6 +15,7 @@ const templates = {
     `🔗 Darte el link directo para hacer el check-in\n\n` +
     `📌 *Comandos disponibles:*\n` +
     `• LISTA — ver tus recordatorios activos\n` +
+    `• BORRAR 1 — eliminar un recordatorio\n` +
     `• AYUDA — ver este mensaje\n\n` +
     `¡Empieza enviando tu primer ticket!`,
 
