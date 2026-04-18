@@ -7,34 +7,69 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const SYSTEM_PROMPT = `Eres un experto analizador de tickets y vouchers de vuelos aéreos.
 Tu trabajo es extraer información estructurada de cualquier texto, imagen o descripción de un ticket de vuelo.
 
-DEBES devolver SIEMPRE un JSON válido con esta estructura exacta:
+DEBES devolver SIEMPRE un JSON válido.
+
+Si hay UN SOLO vuelo, devolvé este formato:
 {
-  "compania": "código IATA de la aerolínea (ej: AR, LA, AA, IB, UA)",
-  "compania_nombre": "nombre completo de la aerolínea",
-  "flight_number": "número de vuelo completo (ej: AR1133)",
-  "origen": "código IATA del aeropuerto de salida (ej: EZE, MAD, MIA)",
-  "origen_ciudad": "nombre de la ciudad de origen",
-  "destino": "código IATA del aeropuerto de destino",
-  "destino_ciudad": "nombre de la ciudad de destino",
-  "fecha_salida": "YYYY-MM-DD",
-  "hora_salida": "HH:MM (formato 24h, hora local del origen)",
-  "fecha_llegada": "YYYY-MM-DD o null si no está",
-  "hora_llegada": "HH:MM o null si no está",
-  "numero_reserva": "PNR o código de reserva si aparece",
-  "pasajero": "nombre del pasajero si aparece",
-  "clase": "clase de servicio si aparece (Economy, Business, etc.)",
-  "asiento": "número de asiento si aparece",
-  "confidence": "HIGH, MEDIUM o LOW según qué tan seguro estás de los datos"
+  "multiple": false,
+  "vuelos": [{
+    "compania": "código IATA de la aerolínea (ej: AR, LA, AA, IB, UA)",
+    "compania_nombre": "nombre completo de la aerolínea",
+    "flight_number": "número de vuelo completo (ej: AR1884)",
+    "origen": "código IATA del aeropuerto de salida (ej: EZE, AEP, MAD)",
+    "origen_ciudad": "nombre de la ciudad de origen",
+    "destino": "código IATA del aeropuerto de destino",
+    "destino_ciudad": "nombre de la ciudad de destino",
+    "fecha_salida": "YYYY-MM-DD",
+    "hora_salida": "HH:MM (formato 24h, hora local del origen)",
+    "fecha_llegada": "YYYY-MM-DD o null",
+    "hora_llegada": "HH:MM o null",
+    "numero_reserva": "PNR o código de reserva",
+    "pasajero": "nombre del pasajero principal",
+    "clase": "clase de servicio (Economy, Business, etc.)",
+    "asiento": "número de asiento o null",
+    "confidence": "HIGH, MEDIUM o LOW"
+  }]
+}
+
+Si hay MÚLTIPLES vuelos (conexiones, ida/vuelta, itinerario completo), devolvé TODOS:
+{
+  "multiple": true,
+  "numero_reserva": "PNR general del itinerario",
+  "pasajeros": ["nombre pasajero 1", "nombre pasajero 2"],
+  "vuelos": [
+    {
+      "compania": "AR",
+      "compania_nombre": "Aerolíneas Argentinas",
+      "flight_number": "AR1884",
+      "origen": "AEP",
+      "origen_ciudad": "Buenos Aires",
+      "destino": "USH",
+      "destino_ciudad": "Ushuaia",
+      "fecha_salida": "2026-04-17",
+      "hora_salida": "15:00",
+      "fecha_llegada": "2026-04-17",
+      "hora_llegada": "18:40",
+      "clase": "Economy",
+      "confidence": "HIGH"
+    },
+    {
+      "compania": "AR",
+      "flight_number": "AR1895",
+      ...
+    }
+  ]
 }
 
 REGLAS:
 - Si no encontrás un dato, poné null (no inventar).
 - Los códigos IATA de aerolínea son de 2 letras (AR, LA, AA, etc.).
-- Los códigos IATA de aeropuerto son de 3 letras (EZE, MAD, MIA, etc.).
+- Los códigos IATA de aeropuerto son de 3 letras (EZE, AEP, MAD, MIA, etc.).
 - La hora SIEMPRE en formato 24h.
 - La fecha SIEMPRE en formato YYYY-MM-DD.
 - Si el texto está en otro idioma, traducí los campos al español.
-- Si hay múltiples vuelos (conexiones), extraé solo el PRIMERO.
+- Extraé TODOS los vuelos que aparezcan en el itinerario.
+- Si hay varios pasajeros, listalos en "pasajeros".
 - NUNCA devuelvas texto fuera del JSON.`;
 
 async function processMessage(message) {
@@ -208,20 +243,43 @@ function parseAnalysisResponse(content) {
 
     const parsed = JSON.parse(jsonMatch[0]);
 
+    // Si viene en formato nuevo (con array de vuelos)
+    if (parsed.vuelos && Array.isArray(parsed.vuelos)) {
+      // Validar que al menos un vuelo tenga datos
+      const vuelosValidos = parsed.vuelos.filter(v =>
+        v.compania || v.flight_number || v.fecha_salida
+      );
+
+      if (vuelosValidos.length === 0) {
+        throw new Error('No se encontraron vuelos válidos');
+      }
+
+      console.log(`[Analyzer] ✅ ${vuelosValidos.length} vuelo(s) extraído(s)`);
+      vuelosValidos.forEach((v, i) => {
+        console.log(`[Analyzer]    Vuelo ${i + 1}: ${v.flight_number} | ${v.origen} → ${v.destino} | ${v.fecha_salida} ${v.hora_salida}`);
+      });
+
+      return {
+        multiple: parsed.multiple || vuelosValidos.length > 1,
+        numero_reserva: parsed.numero_reserva || vuelosValidos[0].numero_reserva,
+        pasajeros: parsed.pasajeros || (vuelosValidos[0].pasajero ? [vuelosValidos[0].pasajero] : []),
+        vuelos: vuelosValidos
+      };
+    }
+
+    // Si viene en formato viejo (un solo vuelo plano)
     if (!parsed.compania && !parsed.flight_number && !parsed.fecha_salida) {
       throw new Error('JSON sin datos útiles del vuelo');
     }
 
-    console.log(`[Analyzer] ✅ Datos extraídos:`, {
-      compania: parsed.compania,
-      vuelo: parsed.flight_number,
-      origen: parsed.origen,
-      fecha: parsed.fecha_salida,
-      hora: parsed.hora_salida,
-      confidence: parsed.confidence
-    });
+    console.log(`[Analyzer] ✅ 1 vuelo extraído: ${parsed.flight_number}`);
 
-    return parsed;
+    return {
+      multiple: false,
+      numero_reserva: parsed.numero_reserva,
+      pasajeros: parsed.pasajero ? [parsed.pasajero] : [],
+      vuelos: [parsed]
+    };
 
   } catch (err) {
     console.error('[Analyzer] ❌ Error parseando respuesta:', err.message);

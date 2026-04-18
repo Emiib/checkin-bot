@@ -46,17 +46,14 @@ router.post('/', async (req, res) => {
     const message = messages[0];
     if (!message.type) return;
 
-    // Tipos soportados
     const tiposValidos = ['text', 'image', 'document', 'audio'];
     if (!tiposValidos.includes(message.type)) return;
 
-    // Normalizar número
     const from = normalizePhone(message.from);
     const msgType = message.type;
 
     console.log(`[Webhook] 📨 Mensaje de ${from} — tipo: ${msgType}`);
 
-    // Registrar usuario en DB
     const user = await upsertUser(from);
 
     // ══════════════════════════════════════════════════════════════════════
@@ -66,7 +63,6 @@ router.post('/', async (req, res) => {
       const text = message.text.body.trim();
       const textUpper = text.toUpperCase();
 
-      // ── Respuesta a confirmación pendiente (SI/NO) ─────────────────────
       if (['SÍ', 'SI', 'S', 'YES'].includes(textUpper)) {
         const handled = await handleConfirmation(from, user, true);
         if (handled) return;
@@ -77,25 +73,21 @@ router.post('/', async (req, res) => {
         if (handled) return;
       }
 
-      // ── Respuesta con código IATA (para cuando falta origen) ───────────
       if (/^[A-Z]{3}$/.test(textUpper)) {
         const handled = await handleIATAResponse(from, user, textUpper);
         if (handled) return;
       }
 
-      // ── Comando: LISTA de recordatorios ────────────────────────────────
       if (['LISTA', 'RECORDATORIOS', 'MIS VUELOS'].includes(textUpper)) {
         await handleListReminders(from);
         return;
       }
 
-      // ── Comando: AYUDA / HOLA ──────────────────────────────────────────
       if (['HOLA', 'START', 'INICIO', 'HELP', 'AYUDA', 'MENU', 'MENÚ'].includes(textUpper)) {
         await sendText(from, templates.welcome());
         return;
       }
 
-      // ── Texto corto que no es comando → bienvenida ─────────────────────
       if (text.length < 30) {
         await sendText(from, templates.welcome());
         return;
@@ -103,11 +95,10 @@ router.post('/', async (req, res) => {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // PROCESAMIENTO DE VOUCHER (texto largo, imagen, PDF, audio)
+    // PROCESAMIENTO DE VOUCHER
     // ══════════════════════════════════════════════════════════════════════
     if (['text', 'image', 'document', 'audio'].includes(msgType)) {
 
-      // Feedback inmediato según tipo
       if (msgType === 'audio') {
         await sendText(from, templates.analyzingAudio());
       } else {
@@ -125,23 +116,30 @@ router.post('/', async (req, res) => {
       }
 
       // 2) Validar datos mínimos
-      if (!ticketData.compania && !ticketData.flight_number && !ticketData.fecha_salida) {
+      if (!ticketData.vuelos || ticketData.vuelos.length === 0) {
         await sendText(from, templates.errorNoData());
         return;
       }
 
-      // 3) ¿Tenemos aeropuerto de origen?
-      if (!ticketData.origen && !ticketData.origen_ciudad) {
-        await savePendingConfirmation(from, null, {
-          type: 'awaiting_iata',
-          ticketData
-        });
-        await sendText(from, templates.missingOrigin(ticketData));
-        return;
-      }
+      // 3) Procesar vuelos
+      if (ticketData.multiple && ticketData.vuelos.length > 1) {
+        await processMultipleFlights(from, user, ticketData);
+      } else {
+        const vuelo = ticketData.vuelos[0];
+        vuelo.numero_reserva = vuelo.numero_reserva || ticketData.numero_reserva;
+        vuelo.pasajero = vuelo.pasajero || (ticketData.pasajeros?.[0] || null);
 
-      // 4) Procesar el vuelo completo
-      await processFlightData(from, user, ticketData);
+        if (!vuelo.origen && !vuelo.origen_ciudad) {
+          await savePendingConfirmation(from, null, {
+            type: 'awaiting_iata',
+            ticketData: vuelo
+          });
+          await sendText(from, templates.missingOrigin(vuelo));
+          return;
+        }
+
+        await processFlightData(from, user, vuelo);
+      }
     }
 
   } catch (error) {
@@ -153,13 +151,8 @@ router.post('/', async (req, res) => {
 // FUNCIONES AUXILIARES
 // ══════════════════════════════════════════════════════════════════════════════
 
-/**
- * Procesa los datos del vuelo:
- * calcula check-in, guarda en DB, envía mensaje
- */
 async function processFlightData(from, user, ticketData) {
   try {
-    // 1) Calcular check-in con zonas horarias
     const checkinCalc = await calculateCheckin({
       originIATA: ticketData.origen,
       originCity: ticketData.origen_ciudad,
@@ -170,13 +163,10 @@ async function processFlightData(from, user, ticketData) {
     });
 
     if (checkinCalc.error) {
-      await sendText(from,
-        `⚠️ ${checkinCalc.message}\n\nRevisá los datos e intentá de nuevo.`
-      );
+      await sendText(from, `⚠️ ${checkinCalc.message}\n\nRevisá los datos e intentá de nuevo.`);
       return;
     }
 
-    // 2) Verificar duplicado
     const duplicate = await findDuplicateFlight(
       user.id,
       ticketData.flight_number,
@@ -191,7 +181,6 @@ async function processFlightData(from, user, ticketData) {
       return;
     }
 
-    // 3) Guardar vuelo en DB
     const flight = await saveFlight({
       userId: user.id,
       airlineCode: ticketData.compania,
@@ -207,24 +196,20 @@ async function processFlightData(from, user, ticketData) {
       checkinCalc
     });
 
-    // 4) Guardar ticket
     await saveTicket({
       userId: user.id,
       flightId: flight.id,
-      extractedText: ticketData.texto_extraido,
-      source: ticketData.tipo_fuente
+      extractedText: ticketData.texto_extraido || '',
+      source: ticketData.tipo_fuente || 'text'
     });
 
-    // 5) Enviar info del check-in
     const checkinMessage = formatCheckinMessage(checkinCalc);
     await sendText(from, checkinMessage);
 
-    // 6) Si el check-in ya está abierto o expiró no pedir confirmación
     if (checkinCalc.status.yaEstaAbierto || checkinCalc.status.yaExpiro) {
       return;
     }
 
-    // 7) Guardar confirmación pendiente
     await savePendingConfirmation(from, flight.id, {
       type: 'awaiting_reminder_confirmation',
       flightId: flight.id,
@@ -232,10 +217,9 @@ async function processFlightData(from, user, ticketData) {
       checkinOpensUser: checkinCalc.checkinUserTime.opens
     });
 
-    // 8) Pedir confirmación con botones
     await sendQuickReply(
       from,
-      `¿Querés que te avise cuando abra el check-in?`,
+      `¿Querés que te avise cuando abra el check-in?\nVuelo: *${ticketData.flight_number}*`,
       [
         { id: 'confirm_yes', title: 'SI ✅' },
         { id: 'confirm_no', title: 'NO ❌' }
@@ -248,9 +232,66 @@ async function processFlightData(from, user, ticketData) {
   }
 }
 
-/**
- * Maneja respuestas SI/NO a confirmaciones pendientes
- */
+async function processMultipleFlights(from, user, ticketData) {
+  try {
+    const vuelos = ticketData.vuelos;
+    const pasajeros = ticketData.pasajeros || [];
+    const reserva = ticketData.numero_reserva;
+
+    await sendText(from,
+      `📋 *Itinerario detectado*\n\n` +
+      `🔖 Reserva: *${reserva || 'N/A'}*\n` +
+      `👥 Pasajeros: ${pasajeros.length > 0 ? pasajeros.join(', ') : 'N/A'}\n` +
+      `✈️ Vuelos encontrados: *${vuelos.length}*\n\n` +
+      `Procesando cada vuelo...`
+    );
+
+    let vuelosProcesados = 0;
+    let vuelosConError = 0;
+
+    for (let i = 0; i < vuelos.length; i++) {
+      const vuelo = vuelos[i];
+      vuelo.numero_reserva = vuelo.numero_reserva || reserva;
+      vuelo.pasajero = vuelo.pasajero || (pasajeros[0] || null);
+
+      try {
+        if (!vuelo.origen && !vuelo.origen_ciudad) {
+          await sendText(from,
+            `⚠️ Vuelo ${i + 1} (${vuelo.flight_number || 'sin número'}): ` +
+            `no pude detectar el aeropuerto de salida. Salteado.`
+          );
+          vuelosConError++;
+          continue;
+        }
+
+        await processFlightData(from, user, vuelo);
+        vuelosProcesados++;
+
+        if (i < vuelos.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1500));
+        }
+
+      } catch (err) {
+        console.error(`[Webhook] Error procesando vuelo ${i + 1}:`, err.message);
+        vuelosConError++;
+      }
+    }
+
+    let resumen = `\n📊 *Resumen del itinerario:*\n`;
+    resumen += `✅ Vuelos procesados: ${vuelosProcesados}\n`;
+    if (vuelosConError > 0) {
+      resumen += `⚠️ Vuelos con error: ${vuelosConError}\n`;
+    }
+    resumen += `\nEscribí *LISTA* para ver tus recordatorios.`;
+
+    await sendText(from, resumen);
+
+  } catch (err) {
+    console.error('[Webhook] Error procesando itinerario:', err.message);
+    await sendText(from, templates.errorGeneral());
+  }
+}
+
 async function handleConfirmation(from, user, accepted) {
   const pending = await getPendingConfirmation(from);
   if (!pending) return false;
@@ -272,9 +313,6 @@ async function handleConfirmation(from, user, accepted) {
   return false;
 }
 
-/**
- * Maneja respuesta con código IATA cuando faltaba el origen
- */
 async function handleIATAResponse(from, user, iataCode) {
   const pending = await getPendingConfirmation(from);
   if (!pending || pending.payload?.type !== 'awaiting_iata') return false;
@@ -289,9 +327,6 @@ async function handleIATAResponse(from, user, iataCode) {
   return true;
 }
 
-/**
- * Muestra los recordatorios activos del usuario
- */
 async function handleListReminders(from) {
   const reminders = await getUserReminders(from);
 
