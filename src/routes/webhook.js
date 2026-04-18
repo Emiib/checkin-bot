@@ -1,24 +1,19 @@
-// src/routes/webhook.js
-// Recibe y procesa los mensajes entrantes de WhatsApp
-
 const express = require('express');
 const router = express.Router();
 
+// Servicios
 const { processMessage } = require('../services/analyzer');
-const { getCheckinInfo } = require('../utils/checkin');
-const { scheduleCheckinReminder, listReminders } = require('../services/scheduler');
-const {
-  sendCheckinConfirmation,
-  sendErrorMessage,
-  sendWelcomeMessage,
-  sendText
-} = require('../services/whatsapp');
+const { calculateCheckin, formatCheckinMessage } = require('../services/checkinCalculator');
+const { upsertUser, saveFlight, saveTicket, findDuplicateFlight } = require('../services/flightService');
+const { savePendingConfirmation, getPendingConfirmation, deletePendingConfirmation } = require('../services/confirmationService');
+const { createReminder, getUserReminders } = require('../services/reminderService');
+const { sendText, sendQuickReply } = require('../services/whatsapp');
 
-// Mapa temporal para esperar confirmación del agente (SÍ/NO)
-// Clave: número de teléfono | Valor: checkinInfo pendiente de confirmar
-const pendingConfirmations = new Map();
+// Utils
+const { normalizePhone } = require('../utils/normalizePhone');
+const templates = require('../utils/messageTemplates');
 
-// ─── Verificación del webhook (requerida por Meta) ───────────────────────────
+// ─── Verificación del webhook (requerida por Meta) ──────────────────────────
 router.get('/', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
@@ -33,16 +28,13 @@ router.get('/', (req, res) => {
   }
 });
 
-// ─── Recepción de mensajes ────────────────────────────────────────────────────
+// ─── Recepción de mensajes ──────────────────────────────────────────────────
 router.post('/', async (req, res) => {
-  // Responder 200 inmediatamente (Meta requiere respuesta rápida)
   res.sendStatus(200);
 
   try {
     const body = req.body;
-
-    // Verificar que es un mensaje de WhatsApp
-    if (!body.object || body.object !== 'whatsapp_business_account') return;
+    if (body.object !== 'whatsapp_business_account') return;
 
     const entry = body.entry?.[0];
     const changes = entry?.changes?.[0];
@@ -51,121 +43,299 @@ router.post('/', async (req, res) => {
 
     if (!messages || messages.length === 0) return;
 
-	const message = messages[0];
-	// Ignorar mensajes que no son del usuario (estados, notificaciones del sistema)
-	if (message.from === process.env.WHATSAPP_PHONE_ID) return;
-	if (!message.type) return;
+    const message = messages[0];
+    if (!message.type) return;
 
-	// Ignorar si no tiene contenido real
-	const tiposValidos = ['text', 'image', 'document', 'audio'];
-	if (!tiposValidos.includes(message.type)) return;
+    // Tipos soportados
+    const tiposValidos = ['text', 'image', 'document', 'audio'];
+    if (!tiposValidos.includes(message.type)) return;
 
-	let from = message.from;
-	if (from.startsWith('549') && from.length === 13) {
-	  from = '54' + from.slice(3); // 5493512395563 → 543512395563
-} // Número del agente
+    // Normalizar número
+    const from = normalizePhone(message.from);
     const msgType = message.type;
-    console.log(`[Webhook] Mensaje de ${from} — tipo: ${msgType}`);
 
-    // ── Comandos de texto especiales ──────────────────────────────────────────
+    console.log(`[Webhook] 📨 Mensaje de ${from} — tipo: ${msgType}`);
+
+    // Registrar usuario en DB
+    const user = await upsertUser(from);
+
+    // ══════════════════════════════════════════════════════════════════════
+    // COMANDOS DE TEXTO
+    // ══════════════════════════════════════════════════════════════════════
     if (msgType === 'text') {
-      const text = message.text.body.trim().toUpperCase();
+      const text = message.text.body.trim();
+      const textUpper = text.toUpperCase();
 
-      // Confirmación del agente: "SÍ" o "SI" para programar el recordatorio
-      if ((text === 'SÍ' || text === 'SI' || text === 'S' || text === 'YES') && pendingConfirmations.has(from)) {
-        const checkinInfo = pendingConfirmations.get(from);
-        pendingConfirmations.delete(from);
+      // ── Respuesta a confirmación pendiente (SI/NO) ─────────────────────
+      if (['SÍ', 'SI', 'S', 'YES'].includes(textUpper)) {
+        const handled = await handleConfirmation(from, user, true);
+        if (handled) return;
+      }
 
-        const reminderId = scheduleCheckinReminder(from, checkinInfo);
+      if (['NO', 'N'].includes(textUpper)) {
+        const handled = await handleConfirmation(from, user, false);
+        if (handled) return;
+      }
 
-        if (reminderId) {
-          await sendText(from,
-            `🔔 ¡Perfecto! Te avisaré el *${checkinInfo.fecha_checkin_formateada}* cuando se abra el check-in.\n\n_Recordatorio programado ✅_`
-          );
-        } else {
-          await sendText(from, `ℹ️ El check-in ya está disponible. ¡No olvides hacerlo!`);
-        }
+      // ── Respuesta con código IATA (para cuando falta origen) ───────────
+      if (/^[A-Z]{3}$/.test(textUpper)) {
+        const handled = await handleIATAResponse(from, user, textUpper);
+        if (handled) return;
+      }
+
+      // ── Comando: LISTA de recordatorios ────────────────────────────────
+      if (['LISTA', 'RECORDATORIOS', 'MIS VUELOS'].includes(textUpper)) {
+        await handleListReminders(from);
         return;
       }
 
-      // Cancelar: "NO" para no programar
-      if ((text === 'NO' || text === 'N') && pendingConfirmations.has(from)) {
-        pendingConfirmations.delete(from);
-        await sendText(from, `👍 Entendido, no programaré el recordatorio. Envíame otro ticket cuando quieras.`);
+      // ── Comando: AYUDA / HOLA ──────────────────────────────────────────
+      if (['HOLA', 'START', 'INICIO', 'HELP', 'AYUDA', 'MENU', 'MENÚ'].includes(textUpper)) {
+        await sendText(from, templates.welcome());
         return;
       }
 
-      // Comando de lista de recordatorios activos
-      if (text === 'RECORDATORIOS' || text === 'LISTA') {
-        const list = listReminders();
-        if (list.length === 0) {
-          await sendText(from, `📭 No tienes recordatorios activos en este momento.`);
-        } else {
-          let msg = `📋 *Recordatorios activos (${list.length}):*\n\n`;
-          list.forEach((r, i) => {
-            msg += `${i + 1}. ${r.compania} — ${r.numero_reserva}\n`;
-            msg += `   🕐 Check-in abre: ${r.checkin_abre}\n\n`;
-          });
-          await sendText(from, msg);
-        }
-        return;
-      }
-
-      // Saludo / bienvenida
-      if (text === 'HOLA' || text === 'START' || text === 'INICIO' || text === 'HELP' || text === 'AYUDA') {
-        await sendWelcomeMessage(from);
+      // ── Texto corto que no es comando → bienvenida ─────────────────────
+      if (text.length < 30) {
+        await sendText(from, templates.welcome());
         return;
       }
     }
 
-    // ── Procesamiento de voucher (texto, imagen o PDF) ─────────────────────
-    if (['text', 'image', 'document'].includes(msgType)) {
+    // ══════════════════════════════════════════════════════════════════════
+    // PROCESAMIENTO DE VOUCHER (texto largo, imagen, PDF, audio)
+    // ══════════════════════════════════════════════════════════════════════
+    if (['text', 'image', 'document', 'audio'].includes(msgType)) {
 
-      // Si es texto corto (< 20 chars), probablemente no es un voucher
-      if (msgType === 'text' && message.text.body.length < 20) {
-        await sendWelcomeMessage(from);
-        return;
+      // Feedback inmediato según tipo
+      if (msgType === 'audio') {
+        await sendText(from, templates.analyzingAudio());
+      } else {
+        await sendText(from, templates.analyzing());
       }
 
-      await sendText(from, `⏳ Analizando tu voucher... un momento por favor.`);
-
-      // Analizar el voucher con IA
+      // 1) Analizar el voucher con IA
       let ticketData;
       try {
         ticketData = await processMessage(message);
       } catch (err) {
         console.error('[Webhook] Error analizando voucher:', err.message);
-        await sendErrorMessage(from);
+        await sendText(from, templates.errorGeneral());
         return;
       }
 
-      // Si no se detectó compañía ni fecha, error
-      if (!ticketData.compania && !ticketData.fecha_salida) {
-        await sendErrorMessage(from);
+      // 2) Validar datos mínimos
+      if (!ticketData.compania && !ticketData.flight_number && !ticketData.fecha_salida) {
+        await sendText(from, templates.errorNoData());
         return;
       }
 
-      // Calcular info del check-in
-      const checkinInfo = getCheckinInfo(ticketData);
-
-      if (checkinInfo.error) {
-        await sendText(from, `⚠️ ${checkinInfo.mensaje}\n\nPor favor revisa el formato del ticket e inténtalo de nuevo.`);
+      // 3) ¿Tenemos aeropuerto de origen?
+      if (!ticketData.origen && !ticketData.origen_ciudad) {
+        await savePendingConfirmation(from, null, {
+          type: 'awaiting_iata',
+          ticketData
+        });
+        await sendText(from, templates.missingOrigin(ticketData));
         return;
       }
 
-      // Enviar confirmación al agente
-      await sendCheckinConfirmation(from, checkinInfo);
-
-      // Si el check-in ya está abierto, no necesitamos confirmación
-      if (!checkinInfo.ya_esta_abierto) {
-        // Guardamos la info en espera de que el agente responda SÍ/NO
-        pendingConfirmations.set(from, checkinInfo);
-      }
+      // 4) Procesar el vuelo completo
+      await processFlightData(from, user, ticketData);
     }
 
   } catch (error) {
-    console.error('[Webhook] Error general:', error);
+    console.error('[Webhook] ❌ Error general:', error);
   }
 });
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FUNCIONES AUXILIARES
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Procesa los datos del vuelo:
+ * calcula check-in, guarda en DB, envía mensaje
+ */
+async function processFlightData(from, user, ticketData) {
+  try {
+    // 1) Calcular check-in con zonas horarias
+    const checkinCalc = await calculateCheckin({
+      originIATA: ticketData.origen,
+      originCity: ticketData.origen_ciudad,
+      airlineCode: ticketData.compania,
+      departureDate: ticketData.fecha_salida,
+      departureTime: ticketData.hora_salida,
+      userTimezone: user.timezone || 'America/Argentina/Buenos_Aires'
+    });
+
+    if (checkinCalc.error) {
+      await sendText(from,
+        `⚠️ ${checkinCalc.message}\n\nRevisá los datos e intentá de nuevo.`
+      );
+      return;
+    }
+
+    // 2) Verificar duplicado
+    const duplicate = await findDuplicateFlight(
+      user.id,
+      ticketData.flight_number,
+      checkinCalc.utc.departureUTC
+    );
+
+    if (duplicate) {
+      await sendText(from,
+        `ℹ️ Ya tengo registrado el vuelo *${ticketData.flight_number}*.\n` +
+        `Escribí *LISTA* para ver tus recordatorios.`
+      );
+      return;
+    }
+
+    // 3) Guardar vuelo en DB
+    const flight = await saveFlight({
+      userId: user.id,
+      airlineCode: ticketData.compania,
+      flightData: {
+        flight_number: ticketData.flight_number,
+        origin: ticketData.origen || checkinCalc.origin.iata,
+        destination: ticketData.destino,
+        pasajero: ticketData.pasajero,
+        numero_reserva: ticketData.numero_reserva,
+        clase: ticketData.clase,
+        confidence: ticketData.confidence
+      },
+      checkinCalc
+    });
+
+    // 4) Guardar ticket
+    await saveTicket({
+      userId: user.id,
+      flightId: flight.id,
+      extractedText: ticketData.texto_extraido,
+      source: ticketData.tipo_fuente
+    });
+
+    // 5) Enviar info del check-in
+    const checkinMessage = formatCheckinMessage(checkinCalc);
+    await sendText(from, checkinMessage);
+
+    // 6) Si el check-in ya está abierto o expiró no pedir confirmación
+    if (checkinCalc.status.yaEstaAbierto || checkinCalc.status.yaExpiro) {
+      return;
+    }
+
+    // 7) Guardar confirmación pendiente
+    await savePendingConfirmation(from, flight.id, {
+      type: 'awaiting_reminder_confirmation',
+      flightId: flight.id,
+      checkinOpensUTC: checkinCalc.utc.checkinOpensUTC,
+      checkinOpensUser: checkinCalc.checkinUserTime.opens
+    });
+
+    // 8) Pedir confirmación con botones
+    await sendQuickReply(
+      from,
+      `¿Querés que te avise cuando abra el check-in?`,
+      [
+        { id: 'confirm_yes', title: 'SI ✅' },
+        { id: 'confirm_no', title: 'NO ❌' }
+      ]
+    );
+
+  } catch (err) {
+    console.error('[Webhook] Error procesando vuelo:', err.message);
+    await sendText(from, templates.errorGeneral());
+  }
+}
+
+/**
+ * Maneja respuestas SI/NO a confirmaciones pendientes
+ */
+async function handleConfirmation(from, user, accepted) {
+  const pending = await getPendingConfirmation(from);
+  if (!pending) return false;
+
+  const payload = pending.payload;
+
+  if (payload.type === 'awaiting_reminder_confirmation') {
+    await deletePendingConfirmation(from);
+
+    if (accepted) {
+      await createReminder(payload.flightId, user.id, payload.checkinOpensUTC);
+      await sendText(from, templates.reminderSet(payload.checkinOpensUser));
+    } else {
+      await sendText(from, templates.reminderCancelled());
+    }
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Maneja respuesta con código IATA cuando faltaba el origen
+ */
+async function handleIATAResponse(from, user, iataCode) {
+  const pending = await getPendingConfirmation(from);
+  if (!pending || pending.payload?.type !== 'awaiting_iata') return false;
+
+  const ticketData = pending.payload.ticketData;
+  ticketData.origen = iataCode;
+
+  await deletePendingConfirmation(from);
+  await sendText(from, `📍 Aeropuerto de salida: *${iataCode}*. Procesando...`);
+
+  await processFlightData(from, user, ticketData);
+  return true;
+}
+
+/**
+ * Muestra los recordatorios activos del usuario
+ */
+async function handleListReminders(from) {
+  const reminders = await getUserReminders(from);
+
+  if (reminders.length === 0) {
+    await sendText(from, templates.noReminders());
+    return;
+  }
+
+  const { DateTime } = require('luxon');
+
+  let msg = `📋 *Tus recordatorios activos (${reminders.length}):*\n\n`;
+
+  reminders.forEach((r, i) => {
+    const flight = r.flights;
+    if (!flight) return;
+
+    const originTz = flight.metadata?.origin_timezone || 'UTC';
+
+    const departure = DateTime
+      .fromISO(flight.departure_datetime)
+      .setZone(originTz)
+      .toFormat('dd/MM/yyyy HH:mm');
+
+    const checkinOpen = DateTime
+      .fromISO(flight.checkin_open_at)
+      .setZone('America/Argentina/Buenos_Aires')
+      .toFormat('dd/MM/yyyy HH:mm');
+
+    msg += `${i + 1}. ✈️ *${flight.flight_number}*\n`;
+    msg += `   🛫 ${flight.origin} → ${flight.destination}\n`;
+    msg += `   📅 Sale: ${departure}\n`;
+    msg += `   🔔 Check-in abre (ARG): ${checkinOpen}\n`;
+
+    if (flight.metadata?.pasajero) {
+      msg += `   👤 ${flight.metadata.pasajero}\n`;
+    }
+    if (flight.metadata?.numero_reserva) {
+      msg += `   🔖 Reserva: ${flight.metadata.numero_reserva}\n`;
+    }
+
+    msg += `\n`;
+  });
+
+  await sendText(from, msg);
+}
 
 module.exports = router;

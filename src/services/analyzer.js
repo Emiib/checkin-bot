@@ -1,120 +1,164 @@
-// src/services/analyzer.js
-// Usa Claude Haiku para leer el voucher y extraer los datos del viaje
-
 const Anthropic = require('@anthropic-ai/sdk');
-const axios = require('axios');
+const { downloadMedia } = require('./whatsapp');
+const { transcribeAudio } = require('./audioTranscriber');
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-// Prompt base para extraer datos del voucher
-const EXTRACTION_PROMPT = `Eres un asistente especializado en extraer información de vouchers y tickets de viaje.
+const SYSTEM_PROMPT = `Eres un experto analizador de tickets y vouchers de vuelos aéreos.
+Tu trabajo es extraer información estructurada de cualquier texto, imagen o descripción de un ticket de vuelo.
 
-Analiza el contenido y extrae SOLO los datos en formato JSON puro, sin texto adicional ni backticks.
-
-Campos a extraer:
-- compania: nombre de la aerolínea, tren o compañía de transporte
-- numero_vuelo: código de vuelo o tren (ej: AR1904, IB3456)
-- numero_reserva: código PNR o localizador de reserva
-- pasajero: nombre completo del pasajero principal
-- fecha_salida: fecha del PRIMER vuelo/trayecto en formato YYYY-MM-DD
-- hora_salida: hora del PRIMER vuelo/trayecto en formato HH:MM (24h)
-- origen: ciudad o aeropuerto de origen
-- destino: ciudad o aeropuerto de destino final
-- tipo: "aereo", "tren" o "ferry"
-
-Si hay múltiples vuelos (ida y vuelta), extraé solo el PRIMERO cronológicamente.
-Si algún campo no aparece, usá null.
-
-Responde ÚNICAMENTE con el JSON, sin explicaciones ni texto adicional.`;
-
-/**
- * Descarga un archivo de WhatsApp usando su media_id
- */
-async function downloadWhatsAppMedia(mediaId) {
-  const metaResponse = await axios.get(
-    `https://graph.facebook.com/v19.0/${mediaId}`,
-    { headers: { Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}` } }
-  );
-
-  const fileUrl = metaResponse.data.url;
-
-  const fileResponse = await axios.get(fileUrl, {
-    responseType: 'arraybuffer',
-    headers: { Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}` }
-  });
-
-  return Buffer.from(fileResponse.data);
+DEBES devolver SIEMPRE un JSON válido con esta estructura exacta:
+{
+  "compania": "código IATA de la aerolínea (ej: AR, LA, AA, IB, UA)",
+  "compania_nombre": "nombre completo de la aerolínea",
+  "flight_number": "número de vuelo completo (ej: AR1133)",
+  "origen": "código IATA del aeropuerto de salida (ej: EZE, MAD, MIA)",
+  "origen_ciudad": "nombre de la ciudad de origen",
+  "destino": "código IATA del aeropuerto de destino",
+  "destino_ciudad": "nombre de la ciudad de destino",
+  "fecha_salida": "YYYY-MM-DD",
+  "hora_salida": "HH:MM (formato 24h, hora local del origen)",
+  "fecha_llegada": "YYYY-MM-DD o null si no está",
+  "hora_llegada": "HH:MM o null si no está",
+  "numero_reserva": "PNR o código de reserva si aparece",
+  "pasajero": "nombre del pasajero si aparece",
+  "clase": "clase de servicio si aparece (Economy, Business, etc.)",
+  "asiento": "número de asiento si aparece",
+  "confidence": "HIGH, MEDIUM o LOW según qué tan seguro estás de los datos"
 }
 
-/**
- * Analiza un voucher de texto plano con Claude
- */
-async function analyzeTextVoucher(text) {
-  const response = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 500,
-    messages: [
-      {
-        role: 'user',
-        content: `${EXTRACTION_PROMPT}\n\nTEXTO DEL VOUCHER:\n${text}`
+REGLAS:
+- Si no encontrás un dato, poné null (no inventar).
+- Los códigos IATA de aerolínea son de 2 letras (AR, LA, AA, etc.).
+- Los códigos IATA de aeropuerto son de 3 letras (EZE, MAD, MIA, etc.).
+- La hora SIEMPRE en formato 24h.
+- La fecha SIEMPRE en formato YYYY-MM-DD.
+- Si el texto está en otro idioma, traducí los campos al español.
+- Si hay múltiples vuelos (conexiones), extraé solo el PRIMERO.
+- NUNCA devuelvas texto fuera del JSON.`;
+
+async function processMessage(message) {
+  let extractedText = '';
+  let analysisResult;
+
+  switch (message.type) {
+    case 'text':
+      extractedText = message.text.body;
+      analysisResult = await analyzeWithText(extractedText);
+      break;
+
+    case 'image':
+      analysisResult = await analyzeWithVision(
+        message.image.id,
+        message.image.mime_type || 'image/jpeg',
+        message.image.caption || ''
+      );
+      extractedText = message.image.caption || '[imagen sin caption]';
+      break;
+
+    case 'document':
+      const docBuffer = await downloadMedia(message.document.id);
+      const mimeType = message.document.mime_type || 'application/pdf';
+      if (mimeType === 'application/pdf') {
+        analysisResult = await analyzeDocumentWithVision(
+          docBuffer,
+          mimeType,
+          message.document.filename || 'documento.pdf'
+        );
+      } else {
+        extractedText = docBuffer.toString('utf-8');
+        analysisResult = await analyzeWithText(extractedText);
       }
-    ]
-  });
+      extractedText = message.document.filename || '[documento]';
+      break;
 
-  const raw = response.content[0].text.trim();
-  return JSON.parse(raw.replace(/```json|```/g, '').trim());
+    case 'audio':
+      extractedText = await transcribeAudio(message.audio.id);
+      analysisResult = await analyzeWithText(extractedText);
+      break;
+
+    default:
+      throw new Error(`Tipo de mensaje no soportado: ${message.type}`);
+  }
+
+  analysisResult.texto_extraido = extractedText;
+  analysisResult.tipo_fuente = message.type;
+
+  return analysisResult;
 }
 
-/**
- * Analiza un voucher en imagen (JPG, PNG) con Claude Vision
- */
-async function analyzeImageVoucher(imageBuffer, mimeType) {
-  // Claude acepta estos tipos de imagen
-  const validImageTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-  const imageMediaType = validImageTypes.includes(mimeType) ? mimeType : 'image/jpeg';
+async function analyzeWithText(text) {
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-opus-4-5',
+      max_tokens: 1024,
+      system: SYSTEM_PROMPT,
+      messages: [{
+        role: 'user',
+        content: `Analiza este texto de un ticket/voucher de vuelo y extraé la información:\n\n${text}`
+      }]
+    });
 
-  const base64Image = imageBuffer.toString('base64');
+    const content = response.content[0].text;
+    console.log('[Analyzer] ✅ Análisis de texto completado');
+    return parseAnalysisResponse(content);
 
-  const response = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 500,
-    messages: [
-      {
+  } catch (err) {
+    console.error('[Analyzer] ❌ Error con Claude (texto):', err.message);
+    throw new Error('No pude analizar el texto del voucher');
+  }
+}
+
+async function analyzeWithVision(mediaId, mimeType, caption) {
+  try {
+    const imageBuffer = await downloadMedia(mediaId);
+    const base64Image = imageBuffer.toString('base64');
+
+    const supportedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    const safeType = supportedTypes.includes(mimeType) ? mimeType : 'image/jpeg';
+
+    const response = await anthropic.messages.create({
+      model: 'claude-opus-4-5',
+      max_tokens: 1024,
+      system: SYSTEM_PROMPT,
+      messages: [{
         role: 'user',
         content: [
           {
             type: 'image',
             source: {
               type: 'base64',
-              media_type: imageMediaType,
+              media_type: safeType,
               data: base64Image
             }
           },
           {
             type: 'text',
-            text: EXTRACTION_PROMPT
+            text: `Analiza esta imagen de un ticket/voucher de vuelo y extraé la información.${caption ? ` Descripción adicional: ${caption}` : ''}`
           }
         ]
-      }
-    ]
-  });
+      }]
+    });
 
-  const raw = response.content[0].text.trim();
-  return JSON.parse(raw.replace(/```json|```/g, '').trim());
+    const content = response.content[0].text;
+    console.log('[Analyzer] ✅ Análisis de imagen completado');
+    return parseAnalysisResponse(content);
+
+  } catch (err) {
+    console.error('[Analyzer] ❌ Error con Claude Vision:', err.message);
+    throw new Error('No pude analizar la imagen');
+  }
 }
 
-/**
- * Analiza un PDF enviado por WhatsApp con Claude
- * Claude puede leer PDFs directamente como documentos
- */
-async function analyzePDFVoucher(pdfBuffer) {
-  const base64PDF = pdfBuffer.toString('base64');
+async function analyzeDocumentWithVision(buffer, mimeType, filename) {
+  try {
+    const base64Doc = buffer.toString('base64');
 
-  const response = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 500,
-    messages: [
-      {
+    const response = await anthropic.messages.create({
+      model: 'claude-opus-4-5',
+      max_tokens: 1024,
+      system: SYSTEM_PROMPT,
+      messages: [{
         role: 'user',
         content: [
           {
@@ -122,57 +166,68 @@ async function analyzePDFVoucher(pdfBuffer) {
             source: {
               type: 'base64',
               media_type: 'application/pdf',
-              data: base64PDF
+              data: base64Doc
             }
           },
           {
             type: 'text',
-            text: EXTRACTION_PROMPT
+            text: `Analiza este documento PDF (${filename}) que es un ticket/voucher de vuelo y extraé la información.`
           }
         ]
-      }
-    ]
-  });
+      }]
+    });
 
-  const raw = response.content[0].text.trim();
-  return JSON.parse(raw.replace(/```json|```/g, '').trim());
-}
+    const content = response.content[0].text;
+    console.log('[Analyzer] ✅ Análisis de PDF completado');
+    return parseAnalysisResponse(content);
 
-/**
- * Función principal: procesa el mensaje entrante de WhatsApp
- */
-async function processMessage(message) {
-  const msgType = message.type;
+  } catch (err) {
+    console.error('[Analyzer] ❌ Error analizando PDF:', err.message);
 
-  // Caso 1: Texto
-  if (msgType === 'text') {
-    return await analyzeTextVoucher(message.text.body);
-  }
+    // Fallback: extraer texto del buffer
+    console.log('[Analyzer] Intentando fallback texto...');
+    const text = buffer.toString('utf-8')
+      .replace(/[^\x20-\x7E\xC0-\xFF\n]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
 
-  // Caso 2: Imagen (JPG, PNG)
-  if (msgType === 'image') {
-    const mediaId = message.image.id;
-    const mimeType = message.image.mime_type || 'image/jpeg';
-    const buffer = await downloadWhatsAppMedia(mediaId);
-    return await analyzeImageVoucher(buffer, mimeType);
-  }
-
-  // Caso 3: Documento PDF
-  if (msgType === 'document') {
-    const mediaId = message.document.id;
-    const mimeType = message.document.mime_type || 'application/pdf';
-    const buffer = await downloadWhatsAppMedia(mediaId);
-
-    // Si es PDF, usamos el lector nativo de Claude
-    if (mimeType === 'application/pdf') {
-      return await analyzePDFVoucher(buffer);
+    if (text.length > 50) {
+      return await analyzeWithText(text);
     }
 
-    // Si es imagen enviada como documento
-    return await analyzeImageVoucher(buffer, mimeType);
+    throw new Error('No pude analizar el documento PDF');
   }
-
-  throw new Error(`Tipo de mensaje no soportado: ${msgType}`);
 }
 
-module.exports = { processMessage, analyzeTextVoucher, analyzeImageVoucher, analyzePDFVoucher };
+function parseAnalysisResponse(content) {
+  try {
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('No se encontró JSON en la respuesta');
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+
+    if (!parsed.compania && !parsed.flight_number && !parsed.fecha_salida) {
+      throw new Error('JSON sin datos útiles del vuelo');
+    }
+
+    console.log(`[Analyzer] ✅ Datos extraídos:`, {
+      compania: parsed.compania,
+      vuelo: parsed.flight_number,
+      origen: parsed.origen,
+      fecha: parsed.fecha_salida,
+      hora: parsed.hora_salida,
+      confidence: parsed.confidence
+    });
+
+    return parsed;
+
+  } catch (err) {
+    console.error('[Analyzer] ❌ Error parseando respuesta:', err.message);
+    console.error('[Analyzer] Respuesta raw:', content.substring(0, 500));
+    throw new Error('No pude interpretar los datos del voucher');
+  }
+}
+
+module.exports = { processMessage };
