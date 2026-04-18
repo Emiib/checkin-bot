@@ -248,6 +248,7 @@ async function processMultipleFlights(from, user, ticketData) {
 
     let vuelosProcesados = 0;
     let vuelosConError = 0;
+    let recordatoriosProgramados = 0;
 
     for (let i = 0; i < vuelos.length; i++) {
       const vuelo = vuelos[i];
@@ -264,8 +265,26 @@ async function processMultipleFlights(from, user, ticketData) {
           continue;
         }
 
-        await processFlightData(from, user, vuelo);
-        vuelosProcesados++;
+        // Procesar vuelo SIN pedir confirmación individual
+        const result = await processFlightDataSilent(from, user, vuelo);
+
+        if (result && result.flight && result.checkinCalc) {
+          vuelosProcesados++;
+
+          // Auto-programar recordatorio si el check-in no abrió ni expiró
+          if (!result.checkinCalc.status.yaEstaAbierto && !result.checkinCalc.status.yaExpiro) {
+            await createReminder(
+              result.flight.id,
+              user.id,
+              result.checkinCalc.utc.checkinOpensUTC
+            );
+            recordatoriosProgramados++;
+          }
+        } else if (result && result.duplicate) {
+          // No contar como error, solo avisar
+        } else {
+          vuelosConError++;
+        }
 
         if (i < vuelos.length - 1) {
           await new Promise(resolve => setTimeout(resolve, 1500));
@@ -277,18 +296,92 @@ async function processMultipleFlights(from, user, ticketData) {
       }
     }
 
-    let resumen = `\n📊 *Resumen del itinerario:*\n`;
+    // Resumen final
+    let resumen = `\n📊 *Resumen del itinerario:*\n\n`;
     resumen += `✅ Vuelos procesados: ${vuelosProcesados}\n`;
+    resumen += `🔔 Recordatorios programados: ${recordatoriosProgramados}\n`;
     if (vuelosConError > 0) {
       resumen += `⚠️ Vuelos con error: ${vuelosConError}\n`;
     }
-    resumen += `\nEscribí *LISTA* para ver tus recordatorios.`;
+    resumen += `\nTe voy a avisar antes de cada check-in. 💪\n`;
+    resumen += `Escribí *LISTA* para ver tus recordatorios.`;
 
     await sendText(from, resumen);
 
   } catch (err) {
     console.error('[Webhook] Error procesando itinerario:', err.message);
     await sendText(from, templates.errorGeneral());
+  }
+}
+
+/**
+ * Procesa un vuelo sin pedir confirmación (para itinerarios múltiples)
+ * Retorna el vuelo guardado y el cálculo de check-in
+ */
+async function processFlightDataSilent(from, user, ticketData) {
+  try {
+    const checkinCalc = await calculateCheckin({
+      originIATA: ticketData.origen,
+      originCity: ticketData.origen_ciudad,
+      airlineCode: ticketData.compania,
+      departureDate: ticketData.fecha_salida,
+      departureTime: ticketData.hora_salida,
+      userTimezone: user.timezone || 'America/Argentina/Buenos_Aires'
+    });
+
+    if (checkinCalc.error) {
+      await sendText(from, `⚠️ ${checkinCalc.message}`);
+      return null;
+    }
+
+    // Verificar duplicado
+    const duplicate = await findDuplicateFlight(
+      user.id,
+      ticketData.flight_number,
+      checkinCalc.utc.departureUTC
+    );
+
+    if (duplicate) {
+      await sendText(from,
+        `ℹ️ Vuelo *${ticketData.flight_number}* ya registrado.`
+      );
+      return { duplicate: true };
+    }
+
+    // Guardar vuelo
+    const flight = await saveFlight({
+      userId: user.id,
+      airlineCode: ticketData.compania,
+      flightData: {
+        flight_number: ticketData.flight_number,
+        origin: ticketData.origen || checkinCalc.origin.iata,
+        destination: ticketData.destino,
+        pasajero: ticketData.pasajero,
+        numero_reserva: ticketData.numero_reserva,
+        clase: ticketData.clase,
+        confidence: ticketData.confidence
+      },
+      checkinCalc
+    });
+
+    // Guardar ticket
+    await saveTicket({
+      userId: user.id,
+      flightId: flight.id,
+      extractedText: ticketData.texto_extraido || '',
+      source: ticketData.tipo_fuente || 'text'
+    });
+
+    // Enviar info del check-in (sin preguntar SI/NO)
+    const checkinMessage = formatCheckinMessage(checkinCalc);
+    await sendText(from, checkinMessage);
+
+    return { flight, checkinCalc };
+
+  } catch (err) {
+    console.error('[Webhook] Error en processFlightDataSilent:', err.message);
+    await sendText(from, `⚠️ Error procesando vuelo ${ticketData.flight_number || ''}`);
+    return null;
   }
 }
 
