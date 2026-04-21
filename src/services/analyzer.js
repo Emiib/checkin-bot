@@ -4,7 +4,7 @@ const { transcribeAudio } = require('./audioTranscriber');
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-function getSystemPrompt() {
+function GetSystemPrompt() {
   const today = new Date().toISOString().split('T')[0];
   return `Eres un experto analizador de tickets y vouchers de vuelos aéreos.
 Tu trabajo es extraer información estructurada de cualquier texto, imagen o descripción de un ticket de vuelo.
@@ -128,7 +128,7 @@ async function analyzeWithText(text) {
     const response = await anthropic.messages.create({
       model: 'claude-opus-4-5',
       max_tokens: 1024,
-      system: getSystemPrompt(),
+      system: GetSystemPrompt(),
       messages: [{
         role: 'user',
         content: `Analiza este texto de un ticket/voucher de vuelo y extraé la información:\n\n${text}`
@@ -156,7 +156,7 @@ async function analyzeWithVision(mediaId, mimeType, caption) {
     const response = await anthropic.messages.create({
       model: 'claude-opus-4-5',
       max_tokens: 1024,
-      system: getSystemPrompt(),
+      system: GetSystemPrompt(),
       messages: [{
         role: 'user',
         content: [
