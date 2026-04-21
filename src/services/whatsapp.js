@@ -1,6 +1,6 @@
 const axios = require('axios');
 
-const WHATSAPP_API = `https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_ID}/messages`;
+const WHATSAPP_API = `https://graph.facebook.com/v21.0/${process.env.WHATSAPP_PHONE_ID}/messages`;
 const HEADERS = {
   Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
   'Content-Type': 'application/json'
@@ -32,7 +32,7 @@ async function downloadMedia(mediaId) {
   try {
     // Paso 1: obtener URL del media
     const mediaInfo = await axios.get(
-      `https://graph.facebook.com/v19.0/${mediaId}`,
+      `https://graph.facebook.com/v21.0/${mediaId}`,
       { headers: { Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}` } }
     );
     const mediaUrl = mediaInfo.data.url;
