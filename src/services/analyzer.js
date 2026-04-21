@@ -4,8 +4,12 @@ const { transcribeAudio } = require('./audioTranscriber');
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-const SYSTEM_PROMPT = `Eres un experto analizador de tickets y vouchers de vuelos aéreos.
+function getSystemPrompt() {
+  const today = new Date().toISOString().split('T')[0];
+  return `Eres un experto analizador de tickets y vouchers de vuelos aéreos.
 Tu trabajo es extraer información estructurada de cualquier texto, imagen o descripción de un ticket de vuelo.
+
+IMPORTANTE: La fecha de hoy es ${today}. Si el año no está especificado en el ticket, usá el año actual o el próximo año si la fecha ya pasó en el año actual.
 
 DEBES devolver SIEMPRE un JSON válido.
 
@@ -52,11 +56,6 @@ Si hay MÚLTIPLES vuelos (conexiones, ida/vuelta, itinerario completo), devolvé
       "hora_llegada": "18:40",
       "clase": "Economy",
       "confidence": "HIGH"
-    },
-    {
-      "compania": "AR",
-      "flight_number": "AR1895",
-      ...
     }
   ]
 }
@@ -67,10 +66,12 @@ REGLAS:
 - Los códigos IATA de aeropuerto son de 3 letras (EZE, AEP, MAD, MIA, etc.).
 - La hora SIEMPRE en formato 24h.
 - La fecha SIEMPRE en formato YYYY-MM-DD.
+- Si el año no aparece, usá ${new Date().getFullYear()} o el siguiente si la fecha ya pasó.
 - Si el texto está en otro idioma, traducí los campos al español.
 - Extraé TODOS los vuelos que aparezcan en el itinerario.
 - Si hay varios pasajeros, listalos en "pasajeros".
 - NUNCA devuelvas texto fuera del JSON.`;
+}
 
 async function processMessage(message) {
   let extractedText = '';
@@ -127,7 +128,7 @@ async function analyzeWithText(text) {
     const response = await anthropic.messages.create({
       model: 'claude-opus-4-5',
       max_tokens: 1024,
-      system: SYSTEM_PROMPT,
+      system: getSystemPrompt(),
       messages: [{
         role: 'user',
         content: `Analiza este texto de un ticket/voucher de vuelo y extraé la información:\n\n${text}`
@@ -155,7 +156,7 @@ async function analyzeWithVision(mediaId, mimeType, caption) {
     const response = await anthropic.messages.create({
       model: 'claude-opus-4-5',
       max_tokens: 1024,
-      system: SYSTEM_PROMPT,
+      system: getSystemPrompt(),
       messages: [{
         role: 'user',
         content: [
@@ -192,7 +193,7 @@ async function analyzeDocumentWithVision(buffer, mimeType, filename) {
     const response = await anthropic.messages.create({
       model: 'claude-opus-4-5',
       max_tokens: 1024,
-      system: SYSTEM_PROMPT,
+      system: GetSystemPrompt(),
       messages: [{
         role: 'user',
         content: [

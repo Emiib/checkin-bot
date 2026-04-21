@@ -320,6 +320,67 @@ async function processMultipleFlights(from, user, ticketData) {
   }
 }
 
+async function processFlightDataSilent(from, user, ticketData) {
+  try {
+    const checkinCalc = await calculateCheckin({
+      originIATA: ticketData.origen,
+      originCity: ticketData.origen_ciudad,
+      airlineCode: ticketData.compania,
+      departureDate: ticketData.fecha_salida,
+      departureTime: ticketData.hora_salida,
+      userTimezone: user.timezone || 'America/Argentina/Buenos_Aires'
+    });
+
+    if (checkinCalc.error) {
+      await sendText(from, `⚠️ ${checkinCalc.message}`);
+      return null;
+    }
+
+    const duplicate = await findDuplicateFlight(
+      user.id,
+      ticketData.flight_number,
+      checkinCalc.utc.departureUTC
+    );
+
+    if (duplicate) {
+      await sendText(from, `ℹ️ Vuelo *${ticketData.flight_number}* ya registrado.`);
+      return { duplicate: true };
+    }
+
+    const flight = await saveFlight({
+      userId: user.id,
+      airlineCode: ticketData.compania,
+      flightData: {
+        flight_number: ticketData.flight_number,
+        origin: ticketData.origen || checkinCalc.origin.iata,
+        destination: ticketData.destino,
+        pasajero: ticketData.pasajero,
+        numero_reserva: ticketData.numero_reserva,
+        clase: ticketData.clase,
+        confidence: ticketData.confidence
+      },
+      checkinCalc
+    });
+
+    await saveTicket({
+      userId: user.id,
+      flightId: flight.id,
+      extractedText: ticketData.texto_extraido || '',
+      source: ticketData.tipo_fuente || 'text'
+    });
+
+    const checkinMessage = formatCheckinMessage(checkinCalc);
+    await sendText(from, checkinMessage);
+
+    return { flight, checkinCalc };
+
+  } catch (err) {
+    console.error('[Webhook] Error en processFlightDataSilent:', err.message);
+    await sendText(from, `⚠️ Error procesando vuelo ${ticketData.flight_number || ''}`);
+    return null;
+  }
+}
+
 /**
  * Procesa un vuelo sin pedir confirmación (para itinerarios múltiples)
  * Retorna el vuelo guardado y el cálculo de check-in
