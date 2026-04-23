@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { supabase } = require('../db/supabase');
 
 // Servicios
 const { processMessage } = require('../services/analyzer');
@@ -8,6 +9,8 @@ const { upsertUser, saveFlight, saveTicket, findDuplicateFlight } = require('../
 const { savePendingConfirmation, getPendingConfirmation, deletePendingConfirmation } = require('../services/confirmationService');
 const { createReminder, getUserReminders } = require('../services/reminderService');
 const { sendText, sendQuickReply } = require('../services/whatsapp');
+const { findExistingFlight, detectChanges, saveChanges, updateFlight, formatChangeMessage } = require('../services/changeDetector');
+const { cancelFlightReminders } = require('../services/reminderService');
 
 // Utils
 const { normalizePhone } = require('../utils/normalizePhone');
@@ -173,20 +176,51 @@ async function processFlightData(from, user, ticketData) {
       return;
     }
 
-    const duplicate = await findDuplicateFlight(
-      user.id,
-      ticketData.flight_number,
-      checkinCalc.utc.departureUTC
-    );
+    // ── Verificar si es una ACTUALIZACIÓN de un vuelo existente ──────
+    const existingFlight = await findExistingFlight(user.id, ticketData);
 
-    if (duplicate) {
-      await sendText(from,
-        `ℹ️ Ya tengo registrado el vuelo *${ticketData.flight_number}*.\n` +
-        `Escribí *LISTA* para ver tus recordatorios.`
-      );
+    if (existingFlight) {
+      const changes = detectChanges(existingFlight, ticketData, checkinCalc);
+
+      if (changes.length === 0) {
+        // No hay cambios, es duplicado
+        await sendText(from,
+          `ℹ️ Ya tengo registrado el vuelo *${ticketData.flight_number}* y no hay cambios.\n` +
+          `Escribí *LISTA* para ver tus recordatorios.`
+        );
+        return;
+      }
+
+      // Hay cambios → actualizar
+      console.log(`[Changes] 🔄 ${changes.length} cambio(s) detectado(s) en ${existingFlight.flight_number}`);
+
+      // Guardar historial de cambios
+      await saveChanges(existingFlight.id, user.id, changes);
+
+      // Actualizar el vuelo
+      await updateFlight(existingFlight.id, checkinCalc, ticketData);
+
+      // Cancelar recordatorios viejos
+      await cancelFlightReminders(existingFlight.id);
+
+      // Crear nuevo recordatorio si el check-in no abrió
+      if (!checkinCalc.status.yaEstaAbierto && !checkinCalc.status.yaExpiro) {
+        await createReminder(existingFlight.id, user.id, checkinCalc.utc.checkinOpensUTC);
+      }
+
+      // Notificar cambios al usuario
+      const changeMsg = formatChangeMessage(changes, ticketData.flight_number || existingFlight.flight_number);
+      await sendText(from, changeMsg);
+
+      // Enviar info actualizada del check-in
+      const checkinMessage = formatCheckinMessage(checkinCalc);
+      await sendText(from, checkinMessage);
+
+      await sendText(from, `🔔 Recordatorio actualizado automáticamente ✅`);
       return;
     }
 
+    // ── Vuelo nuevo (no existe en DB) ────────────────────────────────
     const flight = await saveFlight({
       userId: user.id,
       airlineCode: ticketData.compania,
@@ -202,6 +236,12 @@ async function processFlightData(from, user, ticketData) {
       checkinCalc
     });
 
+    // Guardar departure original
+    await supabase
+      .from('flights')
+      .update({ original_departure_datetime: checkinCalc.utc.departureUTC })
+      .eq('id', flight.id);
+
     await saveTicket({
       userId: user.id,
       flightId: flight.id,
@@ -212,25 +252,10 @@ async function processFlightData(from, user, ticketData) {
     const checkinMessage = formatCheckinMessage(checkinCalc);
     await sendText(from, checkinMessage);
 
-    if (checkinCalc.status.yaEstaAbierto || checkinCalc.status.yaExpiro) {
-      return;
+    if (!checkinCalc.status.yaEstaAbierto && !checkinCalc.status.yaExpiro) {
+      await createReminder(flight.id, user.id, checkinCalc.utc.checkinOpensUTC);
+      await sendText(from, `🔔 Recordatorio programado automáticamente ✅`);
     }
-
-    await savePendingConfirmation(from, flight.id, {
-      type: 'awaiting_reminder_confirmation',
-      flightId: flight.id,
-      checkinOpensUTC: checkinCalc.utc.checkinOpensUTC,
-      checkinOpensUser: checkinCalc.checkinUserTime.opens
-    });
-
-    await sendQuickReply(
-      from,
-      `¿Querés que te avise cuando abra el check-in?\nVuelo: *${ticketData.flight_number}*`,
-      [
-        { id: 'confirm_yes', title: 'SI ✅' },
-        { id: 'confirm_no', title: 'NO ❌' }
-      ]
-    );
 
   } catch (err) {
     console.error('[Webhook] Error procesando vuelo:', err.message);
@@ -336,17 +361,31 @@ async function processFlightDataSilent(from, user, ticketData) {
       return null;
     }
 
-    const duplicate = await findDuplicateFlight(
-      user.id,
-      ticketData.flight_number,
-      checkinCalc.utc.departureUTC
-    );
+    // Verificar si es actualización
+    const existingFlight = await findExistingFlight(user.id, ticketData);
 
-    if (duplicate) {
-      await sendText(from, `ℹ️ Vuelo *${ticketData.flight_number}* ya registrado.`);
-      return { duplicate: true };
+    if (existingFlight) {
+      const changes = detectChanges(existingFlight, ticketData, checkinCalc);
+
+      if (changes.length === 0) {
+        return { duplicate: true };
+      }
+
+      // Actualizar vuelo existente
+      await saveChanges(existingFlight.id, user.id, changes);
+      await updateFlight(existingFlight.id, checkinCalc, ticketData);
+      await cancelFlightReminders(existingFlight.id);
+
+      const changeMsg = formatChangeMessage(changes, ticketData.flight_number || existingFlight.flight_number);
+      await sendText(from, changeMsg);
+
+      const checkinMessage = formatCheckinMessage(checkinCalc);
+      await sendText(from, checkinMessage);
+
+      return { flight: existingFlight, checkinCalc, updated: true };
     }
 
+    // Vuelo nuevo
     const flight = await saveFlight({
       userId: user.id,
       airlineCode: ticketData.compania,
@@ -361,6 +400,11 @@ async function processFlightDataSilent(from, user, ticketData) {
       },
       checkinCalc
     });
+
+    await supabase
+      .from('flights')
+      .update({ original_departure_datetime: checkinCalc.utc.departureUTC })
+      .eq('id', flight.id);
 
     await saveTicket({
       userId: user.id,
