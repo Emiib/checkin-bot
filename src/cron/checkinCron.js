@@ -43,4 +43,28 @@ router.get('/status', (req, res) => {
   });
 });
 
+/**
+ * Endpoint para monitorear vuelos manualmente
+ * GET /cron/monitor-flights?secret=tu_clave
+ */
+router.get('/monitor-flights', async (req, res) => {
+  const secret = req.query.secret || req.headers['x-cron-secret'];
+
+  if (secret !== process.env.CRON_SECRET) {
+    return res.status(401).json({ error: 'No autorizado' });
+  }
+
+  try {
+    const { monitorUpcomingFlights } = require('../services/flightMonitor');
+    await monitorUpcomingFlights();
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      message: 'Monitoreo de vuelos completado'
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
