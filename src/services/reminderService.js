@@ -52,6 +52,7 @@ async function getUserReminders(phoneNumber) {
     .from('checkin_events')
     .select(`
       id,
+      flight_id,
       event_type,
       scheduled_at,
       sent_at,

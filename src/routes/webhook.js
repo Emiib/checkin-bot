@@ -586,7 +586,7 @@ async function handleDeleteReminder(from, textUpper) {
   const index = parseInt(parts[1]) - 1;
 
   if (isNaN(index) || index < 0) {
-    await sendText(from, `⚠️ Formato incorrecto. Escribí *BORRAR 1* para eliminar el primer recordatorio.`);
+    await sendText(from, `⚠️ Escribí *BORRAR 1*, *BORRAR 2*, etc. según el número de la lista.`);
     return;
   }
 
@@ -598,19 +598,33 @@ async function handleDeleteReminder(from, textUpper) {
   }
 
   if (index >= reminders.length) {
-    await sendText(from, `⚠️ Solo tenés ${reminders.length} recordatorio(s). Escribí *BORRAR 1* a *BORRAR ${reminders.length}*.`);
+    await sendText(from, `⚠️ Solo tenés ${reminders.length} recordatorio(s) activos.`);
     return;
   }
 
   const reminder = reminders[index];
+
+  // Debug: ver qué tiene el reminder
+  console.log(`[Reminder] Intentando borrar:`, JSON.stringify({
+    id: reminder.id,
+    flight_id: reminder.flight_id,
+    flights: reminder.flights?.flight_number
+  }));
+
   const flightNumber = reminder.flights?.flight_number || 'desconocido';
   const flightId = reminder.flight_id;
 
+  if (!flightId) {
+    console.error('[Reminder] flight_id undefined para reminder:', reminder.id);
+    await sendText(from, `❌ Error al eliminar. Intentá de nuevo.`);
+    return;
+  }
+
+  // Cancelar por ID del evento directamente (más seguro)
   const { error } = await supabase
     .from('checkin_events')
     .update({ event_type: 'cancelled' })
-    .eq('flight_id', flightId)
-    .eq('event_type', 'scheduled');
+    .eq('id', reminder.id);
 
   if (error) {
     console.error('[Reminder] Error cancelando:', error.message);
