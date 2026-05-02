@@ -604,10 +604,19 @@ async function handleDeleteReminder(from, textUpper) {
 
   const reminder = reminders[index];
   const flightNumber = reminder.flights?.flight_number || 'desconocido';
+  const flightId = reminder.flight_id;
 
-  // Importar cancelFlightReminders
-  const { cancelFlightReminders } = require('../services/reminderService');
-  await cancelFlightReminders(reminder.flight_id);
+  const { error } = await supabase
+    .from('checkin_events')
+    .update({ event_type: 'cancelled' })
+    .eq('flight_id', flightId)
+    .eq('event_type', 'scheduled');
+
+  if (error) {
+    console.error('[Reminder] Error cancelando:', error.message);
+    await sendText(from, `❌ Error eliminando el recordatorio. Intentá de nuevo.`);
+    return;
+  }
 
   await sendText(from,
     `🗑️ Recordatorio del vuelo *${flightNumber}* eliminado.\n\n` +

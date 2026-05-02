@@ -167,11 +167,17 @@ async function incrementRetry(reminderId, errorBody = '') {
  * Cancela recordatorios de un vuelo
  */
 async function cancelFlightReminders(flightId) {
-  await supabase
+  const { error } = await supabase
     .from('checkin_events')
     .update({ event_type: 'cancelled' })
     .eq('flight_id', flightId)
     .eq('event_type', 'scheduled');
+
+  if (error) {
+    console.error('[Reminder] Error cancelando reminders:', error.message);
+  } else {
+    console.log(`[Reminder] ✅ Recordatorios cancelados para flight ${flightId}`);
+  }
 }
 
 module.exports = {
