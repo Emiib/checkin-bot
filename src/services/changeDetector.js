@@ -30,6 +30,7 @@ async function findExistingFlight(userId, ticketData) {
   return null;
 }
 
+async function findExistingFlight(userId, ticketData) {
   // Buscar por número de vuelo + fecha cercana (±2 días)
   if (ticketData.flight_number && ticketData.fecha_salida) {
     const targetDate = DateTime.fromISO(ticketData.fecha_salida);
