@@ -6,25 +6,29 @@ const { DateTime } = require('luxon');
  * o el mismo número de vuelo en fecha cercana
  */
 async function findExistingFlight(userId, ticketData) {
-  // Buscar por PNR (más confiable)
-  if (ticketData.numero_reserva) {
+  // Buscar por número de vuelo + fecha exacta (más confiable)
+  if (ticketData.flight_number && ticketData.fecha_salida) {
+    const targetDate = DateTime.fromISO(ticketData.fecha_salida);
+    const dateFrom = targetDate.minus({ hours: 6 }).toISO();
+    const dateTo = targetDate.plus({ hours: 6 }).toISO();
+
     const { data } = await supabase
       .from('flights')
       .select('*')
       .eq('user_id', userId)
-      .contains('metadata', { numero_reserva: ticketData.numero_reserva })
+      .eq('flight_number', ticketData.flight_number)
+      .gte('departure_datetime', dateFrom)
+      .lte('departure_datetime', dateTo)
       .not('status', 'eq', 'cancelled')
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
 
-    if (data && data.length > 0) {
-      // Si hay múltiples vuelos con el mismo PNR, buscar por número de vuelo
-      if (ticketData.flight_number) {
-        const match = data.find(f => f.flight_number === ticketData.flight_number);
-        if (match) return match;
-      }
-      return data[0];
-    }
+    if (data) return data;
   }
+
+  return null;
+}
 
   // Buscar por número de vuelo + fecha cercana (±2 días)
   if (ticketData.flight_number && ticketData.fecha_salida) {
