@@ -603,39 +603,60 @@ async function handleDeleteReminder(from, textUpper) {
   }
 
   const reminder = reminders[index];
-
-  // Debug: ver qué tiene el reminder
-  console.log(`[Reminder] Intentando borrar:`, JSON.stringify({
-    id: reminder.id,
-    flight_id: reminder.flight_id,
-    flights: reminder.flights?.flight_number
-  }));
-
   const flightNumber = reminder.flights?.flight_number || 'desconocido';
   const flightId = reminder.flight_id;
 
+  console.log(`[Reminder] Borrando definitivamente vuelo ${flightNumber} (${flightId})`);
+
   if (!flightId) {
-    console.error('[Reminder] flight_id undefined para reminder:', reminder.id);
     await sendText(from, `❌ Error al eliminar. Intentá de nuevo.`);
     return;
   }
 
-  // Cancelar por ID del evento directamente (más seguro)
-  const { error } = await supabase
-    .from('checkin_events')
-    .update({ event_type: 'cancelled' })
-    .eq('id', reminder.id);
+  try {
+    // 1) Cancelar todos los recordatorios del vuelo
+    await supabase
+      .from('checkin_events')
+      .update({ event_type: 'cancelled' })
+      .eq('flight_id', flightId)
+      .eq('event_type', 'scheduled');
 
-  if (error) {
-    console.error('[Reminder] Error cancelando:', error.message);
-    await sendText(from, `❌ Error eliminando el recordatorio. Intentá de nuevo.`);
-    return;
+    // 2) Eliminar confirmaciones pendientes del vuelo
+    await supabase
+      .from('pending_confirmations')
+      .delete()
+      .eq('flight_id', flightId);
+
+    // 3) Eliminar tickets del vuelo
+    await supabase
+      .from('tickets')
+      .delete()
+      .eq('flight_id', flightId);
+
+    // 4) Eliminar historial de cambios
+    await supabase
+      .from('flight_changes')
+      .delete()
+      .eq('flight_id', flightId);
+
+    // 5) Eliminar el vuelo definitivamente
+    await supabase
+      .from('flights')
+      .delete()
+      .eq('id', flightId);
+
+    console.log(`[Reminder] ✅ Vuelo ${flightNumber} eliminado definitivamente`);
+
+    await sendText(from,
+      `🗑️ Vuelo *${flightNumber}* eliminado definitivamente.\n\n` +
+      `Si querés volver a cargarlo, enviame el ticket de nuevo.\n\n` +
+      `Escribí *LISTA* para ver los que quedan.`
+    );
+
+  } catch (err) {
+    console.error('[Reminder] Error borrando vuelo:', err.message);
+    await sendText(from, `❌ Error eliminando el vuelo. Intentá de nuevo.`);
   }
-
-  await sendText(from,
-    `🗑️ Recordatorio del vuelo *${flightNumber}* eliminado.\n\n` +
-    `Escribí *LISTA* para ver los que quedan.`
-  );
 }
 
 module.exports = router;
